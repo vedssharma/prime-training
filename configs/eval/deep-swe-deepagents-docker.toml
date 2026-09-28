@@ -1,0 +1,19 @@
+# DeepSWE v1.1 with the LangChain Deep Agents harness, run on local Docker.
+# Upstream images (public.ecr.aws/d3j8x8q7/swe-bench-202605:<tag>) must be pulled and
+# re-tagged as prime/prime/swe-bench-202605:<tag>, the name the taskset resolves.
+model = "deepseek/deepseek-v4-flash"
+max_concurrent = 1
+
+[env.taskset]
+id = "primeintellect/deep-swe"
+# Docker Desktop has 8 GB; tasks request 8 GB each.
+resource_multiplier = 0.75
+
+[env.agent.harness]
+id = "deepagents-harness"
+
+[env.agent.runtime]
+type = "docker"
+
+[env.verifier_runtime]
+type = "docker"

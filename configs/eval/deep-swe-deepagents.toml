@@ -1,0 +1,18 @@
+# DeepSWE v1.1 (113 long-horizon SWE tasks) with the LangChain Deep Agents harness on Prime VMs.
+# Task images must exist in taskset.image_namespace (see environments/deep_swe_own/README.md).
+model = "deepseek/deepseek-v4-flash"
+
+[env.taskset]
+id = "deep-swe-own"
+image_namespace = "prime/vedshar"
+
+[env.agent.harness]
+id = "deepagents-harness"
+
+[env.agent.runtime]
+type = "prime"
+vm = true
+
+[env.verifier_runtime]
+type = "prime"
+vm = true
