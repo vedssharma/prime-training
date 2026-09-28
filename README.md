@@ -37,10 +37,15 @@ uv run eval @ configs/eval/deep-swe-deepagents-docker.toml -n 3
 
 ## Results so far
 
-3-task smoke run, `deepseek/deepseek-v4-flash`, local Docker, no planning tool:
+Two 3-task smoke runs of `deepseek/deepseek-v4-flash` with provider-default sampling, 1 rollout per task. Reward is DeepSWE's binary pass/fail. The fail-to-pass (F2P) and pass-to-pass (P2P) columns show tests passed out of the total, and the time column is agent wall-clock time.
 
-| Task | Reward | Fail-to-pass | Pass-to-pass |
-| --- | --- | --- | --- |
-| abs-module-cache-flags | 0 | 11/20 | 3/3 |
-| abs-stepped-slices | 0 | 3/6 | 5/6 |
-| actionlint-action-pinning-lint | 0 | 55/55 | 144/145 |
+| Task | Local Docker, no planning tool: F2P / P2P / time | Prime VM, with `write_todos`: F2P / P2P / time |
+| --- | --- | --- |
+| abs-module-cache-flags | 11/20 · 3/3 · 64 min | 9/20 · 3/3 · 11 min |
+| abs-stepped-slices | 3/6 · 5/6 · 26 min | 1/6 · 5/6 · 12 min |
+| actionlint-action-pinning-lint | 55/55 · 144/145 · 10 min | 0/55 · 145/145 · 14 min |
+| **Solved** | **0/3** | **0/3** |
+
+- **Local Docker** ran amd64 images under emulation on an arm64 Mac, one task at a time. **Prime VMs** run natively, with all 3 tasks in parallel (the whole run took 15 minutes).
+- On the VM run, `actionlint-action-pinning-lint` scored 0/55 because the agent never committed. Its last model call was a 39k-token reasoning reply that ended mid-sentence with no tool call, and Deep Agents took that as the final answer. `UncommittedWorkNudge` (added after these runs) now sends the agent back to work in that situation.
+- With one rollout per task, differences between the two runs are mostly noise. They validate the pipeline; they don't measure the model.

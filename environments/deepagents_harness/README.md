@@ -11,6 +11,8 @@ A coding agent built with [LangChain Deep Agents](https://github.com/langchain-a
 - `write_todos`: planning (via `TodoListMiddleware`)
 - `task`: general-purpose subagents with isolated context
 
+Deep Agents treats any reply without a tool call as the final answer, so a model that stops mid-thought ends the rollout and loses uncommitted work. `UncommittedWorkNudge` catches that: if the model stops while `git status` in the workdir shows uncommitted changes, it sends the model back to work with a reminder (up to `max_nudges` times). It never commits on the agent's behalf, and it does not apply inside `task` subagents.
+
 The model is `ChatOpenAI` over chat completions, pointed at the verifiers interception `endpoint`/`secret`, so every call is captured in the trace. The program is a PEP 723 uv script (`program.py`) prepared with `activate=False`, so the harness venv stays out of the agent's shell.
 
 ## Config
@@ -20,6 +22,7 @@ The model is `ChatOpenAI` over chat completions, pointed at the verifiers interc
 | `version` | `0.7.19` | `deepagents` release |
 | `langchain_openai_version` | `1.6.6` | `langchain-openai` release |
 | `recursion_limit` | `1000` | LangGraph step budget |
+| `max_nudges` | `3` | Times the agent is sent back when it stops with uncommitted changes |
 | `tool_timeout` | `600` | `execute` timeout, in seconds |
 
 MCP servers, user simulation and `disabled_tools` are not supported.

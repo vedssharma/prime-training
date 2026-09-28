@@ -14,6 +14,8 @@ class DeepAgentsHarnessConfig(vf.HarnessConfig):
     """langchain-openai release used to reach the interception endpoint."""
     recursion_limit: int = Field(default=1000, gt=0)
     """LangGraph step budget; each model call and tool call is one step."""
+    max_nudges: int = Field(default=3, ge=0)
+    """Times the agent is sent back to work when it stops with uncommitted changes."""
 
 
 class DeepAgentsHarness(vf.Harness[DeepAgentsHarnessConfig]):
@@ -53,6 +55,7 @@ class DeepAgentsHarness(vf.Harness[DeepAgentsHarnessConfig]):
             f"--task={prompt}",
             f"--tool-timeout={int(self.config.tool_timeout)}",
             f"--recursion-limit={self.config.recursion_limit}",
+            f"--max-nudges={self.config.max_nudges}",
         ]
         if data.workdir:
             args.append(f"--workdir={data.workdir}")

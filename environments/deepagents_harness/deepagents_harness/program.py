@@ -11,7 +11,8 @@ import sys
 
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
-from langchain.agents.middleware import TodoListMiddleware
+from langchain.agents.middleware import AgentMiddleware, TodoListMiddleware, hook_config
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
 SYSTEM_PROMPT = """You are an autonomous software engineer working in a real repository at {workdir}.
@@ -26,6 +27,48 @@ How to work:
 - Follow any version-control instructions in the task exactly (branch, commit). Only committed work may count.
 """
 
+NUDGE = """You stopped without calling a tool, but the repository at {workdir} still has uncommitted changes:
+
+{status}
+If the task is not finished, continue working. If it is, make sure the work is committed as the task instructs, then stop."""
+
+
+class UncommittedWorkNudge(AgentMiddleware):
+    """Send the model back to work when it ends its turn with uncommitted changes.
+
+    Deep Agents treats any reply without a tool call as the final answer, so a model that
+    stops mid-thought (e.g. a long reasoning reply) ends the rollout and loses its work.
+    The nudge only asks; it never commits on the agent's behalf.
+    """
+
+    def __init__(self, workdir: str, max_nudges: int) -> None:
+        super().__init__()
+        self.workdir = workdir
+        self.max_nudges = max_nudges
+        self.nudges = 0
+
+    async def uncommitted(self) -> str:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", self.workdir, "status", "--porcelain",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+        # Not a git repository (or no git): nothing to guard.
+        return stdout.decode() if proc.returncode == 0 else ""
+
+    @hook_config(can_jump_to=["model"])
+    async def aafter_model(self, state, runtime) -> dict | None:
+        last = state["messages"][-1]
+        if not isinstance(last, AIMessage) or last.tool_calls or self.nudges >= self.max_nudges:
+            return None
+        status = await self.uncommitted()
+        if not status:
+            return None
+        self.nudges += 1
+        print(f"[deepagents] nudge {self.nudges}/{self.max_nudges}: uncommitted changes", file=sys.stderr)
+        text = NUDGE.format(workdir=self.workdir, status=status)
+        return {"messages": [HumanMessage(text)], "jump_to": "model"}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -37,6 +80,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workdir", default=os.getcwd())
     parser.add_argument("--tool-timeout", type=int, default=600)
     parser.add_argument("--recursion-limit", type=int, default=1000)
+    parser.add_argument("--max-nudges", type=int, default=3)
     return parser.parse_args()
 
 
@@ -66,7 +110,10 @@ async def main() -> None:
         system_prompt=system_prompt,
         backend=backend,
         # deepagents>=0.7 no longer adds the planning tool by default.
-        middleware=[TodoListMiddleware()],
+        middleware=[
+            TodoListMiddleware(),
+            UncommittedWorkNudge(args.workdir, args.max_nudges),
+        ],
     )
     result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": args.task}]},
