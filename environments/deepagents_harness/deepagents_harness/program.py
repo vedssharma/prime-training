@@ -14,6 +14,10 @@ from deepagents.backends import LocalShellBackend
 from langchain.agents.middleware import AgentMiddleware, TodoListMiddleware, hook_config
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
+from openai import APIConnectionError, APIStatusError
+
+# Exit code telling the harness the interception endpoint was unreachable (EX_TEMPFAIL).
+EXIT_UNREACHABLE = 75
 
 SYSTEM_PROMPT = """You are an autonomous software engineer working in a real repository at {workdir}.
 Nobody will answer questions: work until the task is fully done, then stop.
@@ -70,6 +74,25 @@ class UncommittedWorkNudge(AgentMiddleware):
         return {"messages": [HumanMessage(text)], "jump_to": "model"}
 
 
+def unreachable(error: BaseException) -> str | None:
+    """Describe `error` if it means the interception endpoint itself could not be reached.
+
+    Covers a dropped connection and a non-JSON error page served in the endpoint's place
+    (e.g. a tunnel's "404 Tunnel not found"). JSON errors are real model/provider errors.
+    """
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, APIConnectionError):
+            return f"{type(error).__name__}: {error}"
+        if isinstance(error, APIStatusError):
+            content_type = error.response.headers.get("content-type", "")
+            if "json" not in content_type:
+                return f"HTTP {error.status_code} with a {content_type or 'non-JSON'} body"
+        error = error.__cause__ or error.__context__
+    return None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", required=True)
@@ -115,10 +138,16 @@ async def main() -> None:
             UncommittedWorkNudge(args.workdir, args.max_nudges),
         ],
     )
-    result = await agent.ainvoke(
-        {"messages": [{"role": "user", "content": args.task}]},
-        config={"recursion_limit": args.recursion_limit},
-    )
+    try:
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": args.task}]},
+            config={"recursion_limit": args.recursion_limit},
+        )
+    except Exception as error:
+        if reason := unreachable(error):
+            print(f"[deepagents] interception endpoint unreachable: {reason}", file=sys.stderr)
+            sys.exit(EXIT_UNREACHABLE)
+        raise
     messages = result["messages"]
     print(f"[deepagents] finished after {len(messages)} messages", file=sys.stderr)
     print(messages[-1].text if messages else "")

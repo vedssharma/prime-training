@@ -3,8 +3,11 @@ from pathlib import Path
 from pydantic import Field
 
 import verifiers.v1 as vf
+from verifiers.v1.errors import InterceptionError
 
 PROGRAM_SOURCE = (Path(__file__).resolve().parent / "program.py").read_text()
+EXIT_UNREACHABLE = 75
+"""program.py's exit code when the interception endpoint could not be reached."""
 
 
 class DeepAgentsHarnessConfig(vf.HarnessConfig):
@@ -62,4 +65,9 @@ class DeepAgentsHarness(vf.Harness[DeepAgentsHarnessConfig]):
         program = await runtime.prepare_uv_script(
             self.source, self.config.resolved_env, activate=False
         )
-        return await runtime.run_program([*program, *args], self.config.resolved_env)
+        result = await runtime.run_program([*program, *args], self.config.resolved_env)
+        if result.exit_code == EXIT_UNREACHABLE:
+            # Infrastructure, not the agent: surface it as retryable (`retries.include`).
+            detail = result.stderr.strip().splitlines()[-1:] or ["<no output>"]
+            raise InterceptionError(f"harness {self.config.id!r} lost the interception endpoint: {detail[0]}")
+        return result
